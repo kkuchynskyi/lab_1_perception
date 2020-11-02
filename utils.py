@@ -26,7 +26,7 @@ def create_prob_dict(alphabet_list, path='./lab1_data/frequencies.json'):
     for i in alphabet_list:
         for j in alphabet_list:
             if i + j not in prob_dict.keys():
-                prob_dict[i + j] = 1e-128
+                prob_dict[i + j] = 1e-16
     return prob_dict
 
 
@@ -108,11 +108,6 @@ def create_indexes_dict(char_to_arr_dict, input_arr, char_distr, p):
     :param char_distr: a dictionary, where keys: all possible bigrams,
         values: probabilites of corresponding bigrams
     :param p: float probability in (0, 1)
-    :return: a dictionary, where keys: ints from 0, to m+1,
-        values: a dictionary, where keys: char (exist 'word', where the last
-                                                symbol this char),
-                valuse:[(float)prob, (string)'word',
-                        (int)step on which has been created]
 
     """
     indexes_dict = dict()
@@ -128,39 +123,16 @@ def create_indexes_dict(char_to_arr_dict, input_arr, char_distr, p):
 
         if indexes_dict[current_width] is None:
             indexes_dict[current_width] = OrderedDict()
-            indexes_dict[current_width][k] = [prob, k, 0]
+            indexes_dict[current_width][k] = [prob, k]
         else:
-            indexes_dict[current_width][k] = [prob, k, 0]
+            indexes_dict[current_width][k] = [prob, k]
     return indexes_dict
 
 
-def update_indexes_dict(indexes_dict, char_to_arr_dict, input_arr,
-                        char_distr, p, n_step):
+def update_one_index(indexes_dict, char_to_arr_dict,
+                     input_arr, char_distr, p, index):
     """
-    Update for 'indexes_dict'.
-    :param indexes_dict: a dictionary, where keys: ints from 0, to m+1,
-        values: a dictionary, where keys: char (exist 'word', where the last
-                                                symbol this char),
-                valuse:[(float)prob, (string)'word',
-                        (int)step on which has been created]
-    :param char_to_arr_dict: a dictionary, where keys: a char from
-        'alphabet_list', values: a corresponding matrix
-    :param input_arr: n*m numpy array
-    :param char_distr: a dictionary, where keys: all possible bigrams,
-        values: probabilites of corresponding bigrams
-    :param p: float probability in (0, 1)
-    :param n_step: a step for updating 'indexes_dict'
-    :return: None
-    """
-    for ind, probs_dicts in indexes_dict.items():
-        if probs_dicts is not None:
-            update_one_index(indexes_dict, int(ind), probs_dicts,
-                            char_to_arr_dict, input_arr, char_distr, p, n_step)
-
-
-def update_one_index(indexes_dict, index, probs_dicts, char_to_arr_dict,
-                     input_arr, char_distr, p, n_step):
-    """
+    Update 'indexes_dict' for 'index'
     Update 'indexes_dict', means update probabilities for all indexes
     ('index' + length a word from alpabet)
     :param indexes_dict: a dictionary, where keys: ints from 0, to m+1,
@@ -168,52 +140,37 @@ def update_one_index(indexes_dict, index, probs_dicts, char_to_arr_dict,
                                                 symbol this char),
                 valuse:[(float)prob, (string)'word',
                         (int)step on which has been created]
-    :param index: int from 0 to m+1
-    :param probs_dicts: a dictionary, where keys: char (exist 'word', where
-                    the last symbol this char),
-                valuse:[(float)prob, (string)'word',
-                        (int)step on which has been created]
     :param char_to_arr_dict: a dictionary, where keys: a char from
         'alphabet_list', values: a corresponding matrix
     :param input_arr: n*m numpy array
     :param char_distr: a dictionary, where keys: all possible bigrams,
         values: probabilites of corresponding bigrams
     :param p: float probability in (0, 1)
-    :param n_step: a step for updating 'indexes_dict'
+    :param index: int from 0 to m+1
     :return: None
     """
     # loop thorugh alphabet dict
     for new_char, new_char_arr in char_to_arr_dict.items():
+        curent_width = new_char_arr.shape[1]
+        if index < curent_width or indexes_dict[index - curent_width] is None:
+            continue
+        best_prob = -1e+16
+        best_seq = None
         # loop through previous chars
-        for prev_char, prev_data in probs_dicts.items():
-            prev_prob, prev_str, prev_step = prev_data
-            curent_width = new_char_arr.shape[1]
-            new_length = index + curent_width
-            # for step n_step we using previous symols from n_step - 1
-            if prev_step != n_step - 1 or new_length > input_arr.shape[1]:
-                continue
-            input_character = input_arr[:, index:new_length]
+        for prev_char, prev_data in indexes_dict[index - curent_width].items():
+            prev_prob, prev_str = prev_data
+            input_character = input_arr[:, (index - curent_width):index]
             current_prob = calculate_ln_prob(input_character, new_char_arr, p)
             new_prob = current_prob + prev_prob
             if char_distr is not None:
                 new_prob += char_distr[prev_char + new_char]
-            # position 'new_length' appears first time in 'indexes_dict'
-            if indexes_dict[new_length] is None:
-                indexes_dict[new_length] = OrderedDict()
-                indexes_dict[new_length][new_char] = [new_prob,
-                                                      prev_str + new_char,
-                                                      n_step]
-            # 'new_char' appears first time in 'indexes_dict[new_length]'
-            if new_char not in indexes_dict[new_length].keys():
-                indexes_dict[new_length][new_char] = [new_prob,
-                                                      prev_str + new_char,
-                                                      n_step]
+            if new_prob > best_prob:
+                best_prob = new_prob
+                best_seq = prev_str + new_char
 
-            # update probs and with better word
-            if new_prob > indexes_dict[new_length][new_char][0]:
-                indexes_dict[new_length][new_char] = [new_prob,
-                                                      prev_str + new_char,
-                                                      n_step]
+        if indexes_dict[index] is None:
+            indexes_dict[index] = OrderedDict()
+        indexes_dict[index][new_char] = [best_prob, best_seq]
 
 
 def predict(indexes_dict):
@@ -230,7 +187,7 @@ def predict(indexes_dict):
     last_ind = max(indexes_dict.keys())
     max_pred = -1e+16
     best_sqc = None
-    for prob, sqc, _ in indexes_dict[last_ind].values():
+    for prob, sqc in indexes_dict[last_ind].values():
         if prob > max_pred:
             max_pred = prob
             best_sqc = sqc
