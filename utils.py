@@ -1,12 +1,12 @@
 import math
 import json
 import os
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 
 import numpy as np
 from PIL import Image
 
-
+# +
 def create_prob_dict(alphabet_list, path='./lab1_data/frequencies.json'):
     """
     Open json-file and create corresponding probability dictionary
@@ -18,15 +18,23 @@ def create_prob_dict(alphabet_list, path='./lab1_data/frequencies.json'):
     with open(path) as f:
         prob_dict = json.load(f)
     total_count = 0
-    for _, v in prob_dict.items():
+    for v in prob_dict.values():
         total_count += v
-    for k, _ in prob_dict.items():
+    for k in prob_dict.keys():
         prob_dict[k] /= total_count
 
     for i in alphabet_list:
         for j in alphabet_list:
             if i + j not in prob_dict.keys():
-                prob_dict[i + j] = 1e-16
+                prob_dict[i + j] = 1e-128
+    dict_prob_cond = defaultdict(lambda x: 0)
+    for k, v in prob_dict.keys():
+        if len(k) == 2:
+            dict_prob_cond[k[0]] += v
+
+    for k, v in prob_dict.keys():
+        if len(k) == 2:
+            prob_dict[k] /= dict_prob_cond[k[0]]
     return prob_dict
 
 
@@ -44,7 +52,7 @@ def create_char_to_arr_dict(alphabet_list, path='./lab1_data/alphabet/'):
             path_to_image = os.path.join(path, "space.png")
         else:
             path_to_image = os.path.join(path, character_name + ".png")
-        character_arr = np.array(Image.open(path_to_image), dtype=np.int8)
+        character_arr = np.array(Image.open(path_to_image), dtype=np.bool)
         char_to_arr_dict[character_name] = character_arr
     return char_to_arr_dict
 
@@ -57,13 +65,15 @@ def read_input_sentence(index, path='./lab1_data/input/'):
     :return: numpy array
     """
     list_input_txt = os.listdir(path)
+    for i, name in enumerate(list_input_txt):
+        print(i, name)
     input_txt_file = list_input_txt[index]
     path_to_image = "./lab1_data/input/{}".format(input_txt_file)
-    input_arr = np.array(Image.open(path_to_image), dtype=np.int8)
+    input_arr = np.array(Image.open(path_to_image), dtype=np.bool)
     print("You have read = ", input_txt_file)
     return input_arr
 
-
+# +
 def calculate_ln_prob(noised_arr, label_arr, p):
     """
     Calculate probability
@@ -90,8 +100,9 @@ def calculate_ln_prob(noised_arr, label_arr, p):
     """
     assert noised_arr.shape == label_arr.shape
     assert 0 < p < 1
+    n, m = noised_arr.shape
     xor_sum = (noised_arr ^ label_arr).sum()
-    return math.log(p/(1-p))*xor_sum + math.log(1-p)
+    return math.log(p/(1-p))*xor_sum + math.log(1-p)*n*m
 
 
 def create_indexes_dict(char_to_arr_dict, input_arr, char_distr, p):
@@ -122,7 +133,7 @@ def create_indexes_dict(char_to_arr_dict, input_arr, char_distr, p):
             prob += math.log(char_distr[" " + k])
 
         if indexes_dict[current_width] is None:
-            indexes_dict[current_width] = OrderedDict()
+            indexes_dict[current_width] = dict()
             indexes_dict[current_width][k] = [prob, k]
         else:
             indexes_dict[current_width][k] = [prob, k]
@@ -135,11 +146,7 @@ def update_one_index(indexes_dict, char_to_arr_dict,
     Update 'indexes_dict' for 'index'
     Update 'indexes_dict', means update probabilities for all indexes
     ('index' + length a word from alpabet)
-    :param indexes_dict: a dictionary, where keys: ints from 0, to m+1,
-        values: a dictionary, where keys: char (exist 'word', where the last
-                                                symbol this char),
-                valuse:[(float)prob, (string)'word',
-                        (int)step on which has been created]
+    :param indexes_dict:
     :param char_to_arr_dict: a dictionary, where keys: a char from
         'alphabet_list', values: a corresponding matrix
     :param input_arr: n*m numpy array
@@ -152,6 +159,7 @@ def update_one_index(indexes_dict, char_to_arr_dict,
     # loop thorugh alphabet dict
     for new_char, new_char_arr in char_to_arr_dict.items():
         curent_width = new_char_arr.shape[1]
+        # check whether previous char exist
         if index < curent_width or indexes_dict[index - curent_width] is None:
             continue
         best_prob = -1e+16
@@ -163,7 +171,7 @@ def update_one_index(indexes_dict, char_to_arr_dict,
             current_prob = calculate_ln_prob(input_character, new_char_arr, p)
             new_prob = current_prob + prev_prob
             if char_distr is not None:
-                new_prob += char_distr[prev_char + new_char]
+                new_prob += math.log(char_distr[prev_char + new_char])
             if new_prob > best_prob:
                 best_prob = new_prob
                 best_seq = prev_str + new_char
@@ -172,7 +180,7 @@ def update_one_index(indexes_dict, char_to_arr_dict,
             indexes_dict[index] = OrderedDict()
         indexes_dict[index][new_char] = [best_prob, best_seq]
 
-
+# +
 def predict(indexes_dict):
     """
     Get a sequence from a value of the 'indexes_dict's last key with the
